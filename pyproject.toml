@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "queue-breaks-first"
+version = "0.1.0"
+description = "A learning project on queue depletion and the next limit order book price move"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.24,<3",
+  "pandas>=2.0,<3",
+  "matplotlib>=3.7,<4",
+]
+
+[project.optional-dependencies]
+research = ["scipy>=1.11,<2", "scikit-learn>=1.3,<2"]
+dev = ["pytest>=7.4,<9"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
