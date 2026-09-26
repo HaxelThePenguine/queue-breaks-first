@@ -1,4 +1,4 @@
-"""Your empirical model starts here."""
+"""Empirical models of best-quote queue imbalance."""
 
 from __future__ import annotations
 
@@ -6,8 +6,7 @@ from __future__ import annotations
 def queue_imbalance(bid_size, ask_size):
     """Return (bid_size - ask_size) / (bid_size + ask_size).
 
-    TODO: support scalars and NumPy arrays. Reject negative queue sizes and
-    decide explicitly how to handle zero total size. Add tests before fitting
-    an empirical model.
+    Planned behavior: support scalars and NumPy arrays, reject negative queue
+    sizes, and define the result when total displayed size is zero.
     """
-    raise NotImplementedError("Exercise 2 in LEARNING_PATH.md")
+    raise NotImplementedError("Queue imbalance model is pending implementation")

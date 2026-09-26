@@ -1,40 +1,51 @@
 # Which Queue Breaks First?
 
-A hands-on Python project about market microstructure, best bid/ask queues, and the direction of the next mid-price move.
+An open-source Python research project on limit order book dynamics and the direction of the next mid-price move.
 
-> **Status:** learning scaffold. The data loader and exploratory script work; the predictive and stochastic models are intentionally left for you to implement.
+## Objective
 
-## Research question
+The project studies whether the sizes of the best bid and ask queues contain information about the direction of the next nonzero mid-price change. It combines an empirical queue-imbalance baseline with a stochastic model of queue depletion.
 
-Given the visible size at the best bid and ask, can we estimate the probability that the **next nonzero mid-price move** is upward?
-
-The project starts with queue imbalance:
+For best-quote sizes $Q_t^{\mathrm{bid}}$ and $Q_t^{\mathrm{ask}}$, the initial predictor is
 
 $$
 I_t = \frac{Q_t^{\mathrm{bid}} - Q_t^{\mathrm{ask}}}
            {Q_t^{\mathrm{bid}} + Q_t^{\mathrm{ask}}}.
 $$
 
-Then it moves to a two-queue birth-death model. If the ask queue reaches zero first, the model predicts an upward price move. For a state $q=(q_b,q_a)$, its hitting probability $h(q)$ satisfies
+The mathematical model represents bid and ask liquidity as two interacting queues. Its key quantity is the probability $h(q_b,q_a)$ that the ask queue depletes before the bid queue. In a finite-state continuous-time Markov model, this probability satisfies
 
 $$
-\mathcal{L}h(q)=0,\qquad
+\mathcal{L}h(q_b,q_a)=0,\qquad
 h(q_b,0)=1,\quad h(0,q_a)=0,
 $$
 
-where $\mathcal{L}$ is the generator of the queue process. Building and solving this system is one of the main exercises.
+where $\mathcal{L}$ is the process generator. The empirical and stochastic estimates will be compared on out-of-sample price moves.
 
-## What is included
+## Project components
 
-- A small **synthetic** LOBSTER-shaped data pair committed under `data/demo/`, so the project runs immediately.
-- A loader for LOBSTER message/orderbook CSV pairs and the official sample ZIP archives.
-- A data inspection script that produces a first plot and a table of price-move observations.
-- Empty model functions with precise tasks and a guided learning path in [`LEARNING_PATH.md`](LEARNING_PATH.md).
-- Tests for the completed data plumbing and a basic GitHub Actions workflow.
+| Component | Scope | Status |
+| --- | --- | --- |
+| Data ingestion | Load aligned LOBSTER message and orderbook files; retain best quotes and sizes | Implemented |
+| Event sampling | Create one labeled observation per constant-mid-price spell | Implemented |
+| Exploratory analysis | Inspect quotes, queue sizes, spreads, and observed price moves | Initial script available |
+| Queue imbalance baseline | Estimate and evaluate next-move probabilities from best-quote imbalance | Planned |
+| Queue depletion model | Construct a finite-state generator and solve for first-depletion probabilities | Planned |
+| Model validation | Compare probabilities, calibration, and sensitivity across assets and periods | Planned |
 
-The synthetic files are for learning and plumbing checks only. They are not market observations and should not be used to claim empirical predictive performance.
+The planned work and evaluation criteria are listed in [`ROADMAP.md`](ROADMAP.md). The model modules currently define the intended interfaces; their estimators are not yet implemented.
 
-## Quick start
+## Data
+
+The repository includes a deterministic **synthetic** LOBSTER-shaped dataset in `data/demo/` for pipeline checks. It is not exchange data. The research dataset is the [official LOBSTER sample](https://data.lobsterdata.com/info/DataSamples.php), which supplies aligned message and orderbook records. Raw provider files are downloaded into the Git-ignored `data/raw/` directory. See [`data/README.md`](data/README.md) for provenance and format details.
+
+```bash
+python scripts/download_sample.py AAPL
+```
+
+The free sample covers one trading day. Results from it are exploratory and do not establish stability across dates or market regimes.
+
+## Reproduce the current pipeline
 
 ```bash
 python -m venv .venv
@@ -42,46 +53,35 @@ python -m venv .venv
 # macOS/Linux: source .venv/bin/activate
 python -m pip install -e ".[research,dev]"
 python scripts/inspect_data.py --source demo
+python scripts/download_sample.py AAPL
+python scripts/inspect_data.py --source lobster --ticker AAPL
 python -m pytest
 ```
 
-The inspection script writes a chart and observation CSV to `reports/`, which is ignored by Git.
+The inspection script saves a chart and a table of labeled price spells in `reports/`. Generated reports and raw provider files are excluded from Git.
 
-## Use actual order book data
-
-LOBSTER publishes [free sample files](https://data.lobsterdata.com/info/DataSamples.php) with aligned message and orderbook data. Download an official sample directly from the provider:
-
-```bash
-python scripts/download_sample.py AAPL
-python scripts/inspect_data.py --source lobster --ticker AAPL
-```
-
-The command downloads the depth-10 sample ZIP into `data/raw/`. Raw provider data are kept out of this repository; the URL, source, and format are documented in [`data/README.md`](data/README.md). If the automated download fails, use the provider's sample page and place the ZIP in `data/raw/` with its original filename.
-
-One sample day is useful for a prototype. It cannot establish stability across days, regimes, or stocks. A serious empirical study needs more dates and a chronological holdout.
-
-## Project map
+## Repository structure
 
 ```text
-data/demo/                       Tiny synthetic input data
+data/demo/                       Synthetic pipeline fixture
 data/raw/                        Official sample ZIPs (downloaded, ignored)
-scripts/download_sample.py       Download a provider sample
-scripts/inspect_data.py          Working exploratory entry point
-src/queue_breaks_first/data.py   Working data loader and event sampler
-src/queue_breaks_first/models.py Your first predictive model
-src/queue_breaks_first/ctmc.py   Your queueing model
-tests/                           Tests for completed plumbing
-LEARNING_PATH.md                 Suggested sequence of exercises
+scripts/download_sample.py       Sample download entry point
+scripts/inspect_data.py          Exploratory analysis entry point
+src/queue_breaks_first/data.py   Data loading and event sampling
+src/queue_breaks_first/models.py Queue imbalance model interface
+src/queue_breaks_first/ctmc.py   Queue depletion model interface
+tests/                           Data pipeline tests
+ROADMAP.md                       Research and implementation plan
 ```
 
-## Methodological choices
+## Methodology and limits
 
-The starter sampler takes **one observation at the start of each constant-mid-price spell** and labels it with the direction of the next change. This avoids treating hundreds of highly correlated book updates with the same future label as independent examples. The default analysis filters to a one-tick spread, where queue depletion has a clearer interpretation; price changes can also arise from inside-spread orders when the spread is wider. LOBSTER prices are integer units of $1/10{,}000; the loader preserves those integers.
+The current sampler uses one book state at the start of each constant-mid-price spell and labels it by the next change. This avoids counting many correlated updates with the same future outcome as independent examples. The default sample is restricted to a one-tick spread, where queue depletion has a clearer interpretation. Wider spreads also allow inside-spread orders to move the mid-price. LOBSTER prices are stored as integer dollar prices multiplied by 10,000; the loader preserves that representation.
 
-Even a strong classifier would not establish a profitable trading strategy. Execution priority, spread, fees, latency, and adverse selection would need a separate study.
+Predicting the direction of a price move is distinct from demonstrating an executable trading edge. Any trading interpretation would require explicit treatment of queue priority, spread, fees, latency, and adverse selection.
 
-## Reading
+## References
 
-1. Cont & de Larrard, [*Price dynamics in a Markovian limit order market*](https://arxiv.org/abs/1104.4596) — the queueing model and hitting probabilities.
-2. Gould & Bonart, [*Queue Imbalance as a One-Tick-Ahead Price Predictor in a Limit Order Book*](https://arxiv.org/abs/1512.03492) — an empirical baseline.
+1. Cont & de Larrard, [*Price dynamics in a Markovian limit order market*](https://arxiv.org/abs/1104.4596).
+2. Gould & Bonart, [*Queue Imbalance as a One-Tick-Ahead Price Predictor in a Limit Order Book*](https://arxiv.org/abs/1512.03492).
 3. LOBSTER, [sample files](https://data.lobsterdata.com/info/DataSamples.php) and [output format](https://data.lobsterdata.com/info/DataStructure.php).

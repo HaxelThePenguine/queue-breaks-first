@@ -1,3 +1,3 @@
-"""Learning scaffold for limit order book queue dynamics."""
+"""Limit order book queue dynamics research project."""
 
 __version__ = "0.1.0"

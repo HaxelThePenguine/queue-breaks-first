@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "queue-breaks-first"
 version = "0.1.0"
-description = "A learning project on queue depletion and the next limit order book price move"
+description = "Empirical and stochastic models of limit order book queue depletion"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
