@@ -42,3 +42,47 @@ def test_mismatched_row_counts_fail(tmp_path: Path):
     book_path.write_text("1100,10,1000,10\n")
     with pytest.raises(ValueError, match="row counts differ"):
         load_lobster_pair(message_path, book_path)
+
+
+def test_depth_selection_and_integer_prices(tmp_path):
+    message = tmp_path / "message.csv"
+    book = tmp_path / "book.csv"
+    message.write_text("1,1,1,10,1100,-1\n")
+    book.write_text("1100,10,1000,20,1300,30,800,40\n")
+    all_levels = load_lobster_pair(message, book, levels=None)
+    assert all_levels["ask_price_2"].tolist() == [1300]
+    assert all_levels["bid_size_2"].tolist() == [40]
+    assert all_levels["ask_price_2"].dtype.kind == "i"
+    assert "ask_price_2" not in load_lobster_pair(message, book)
+    with pytest.raises(ValueError, match="input has 2"):
+        load_lobster_pair(message, book, levels=3)
+
+
+@pytest.mark.parametrize("levels", [0, -1, True, 1.5])
+def test_invalid_depth(levels, tmp_path):
+    with pytest.raises(ValueError, match="levels"):
+        load_lobster_pair(tmp_path / "missing", tmp_path / "missing", levels=levels)
+
+
+@pytest.mark.parametrize("row,match", [
+    ("nan,1,1,10,1100,-1", "Missing numeric"),
+    ("inf,1,1,10,1100,-1", "finite"),
+    ("1,8,1,10,1100,-1", "event type"),
+    ("1,1,1,-10,1100,-1", "sizes"),
+    ("1,1,1,10,1100,0", "direction"),
+])
+def test_invalid_message_fields(row, match, tmp_path):
+    message, book = tmp_path / "message.csv", tmp_path / "book.csv"
+    message.write_text(row + "\n")
+    book.write_text("1100,10,1000,20\n")
+    with pytest.raises(ValueError, match=match):
+        load_lobster_pair(message, book)
+
+
+def test_zip_retains_all_levels(tmp_path):
+    archive = tmp_path / "sample.zip"
+    with ZipFile(archive, "w") as z:
+        z.writestr("sample_message_2.csv", "1,1,1,10,1100,-1\n")
+        z.writestr("sample_orderbook_2.csv", "1100,10,1000,20,1200,30,900,40\n")
+    events = load_lobster_zip(archive, levels=None)
+    assert events["bid_price_2"].tolist() == [900]

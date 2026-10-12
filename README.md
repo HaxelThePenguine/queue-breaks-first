@@ -1,87 +1,59 @@
 # Which Queue Breaks First?
 
-An open-source Python research project on limit order book dynamics and the direction of the next mid-price move.
+Limit order book research in Python. The current focus is a FIFO matching engine and historical replay. Queue depletion models come next.
 
-## Objective
-
-The project studies whether the sizes of the best bid and ask queues contain information about the direction of the next nonzero mid-price change. It combines an empirical queue-imbalance baseline with a stochastic model of queue depletion.
-
-For best-quote sizes $Q_t^{\mathrm{bid}}$ and $Q_t^{\mathrm{ask}}$, the initial predictor is
-
-$$
-I_t = \frac{Q_t^{\mathrm{bid}} - Q_t^{\mathrm{ask}}}
-           {Q_t^{\mathrm{bid}} + Q_t^{\mathrm{ask}}}.
-$$
-
-The mathematical model represents bid and ask liquidity as two interacting queues. Its key quantity is the probability $h(q_b,q_a)$ that the ask queue depletes before the bid queue. In a finite-state continuous-time Markov model, this probability satisfies
-
-$$
-\mathcal{L}h(q_b,q_a)=0,\qquad
-h(q_b,0)=1,\quad h(0,q_a)=0,
-$$
-
-where $\mathcal{L}$ is the process generator. The empirical and stochastic estimates will be compared on out-of-sample price moves.
-
-## Project components
-
-| Component | Scope | Status |
-| --- | --- | --- |
-| Data ingestion | Load aligned LOBSTER message and orderbook files; retain best quotes and sizes | Implemented |
-| Event sampling | Create one labeled observation per constant-mid-price spell | Implemented |
-| Exploratory analysis | Inspect quotes, queue sizes, spreads, and observed price moves | Initial script available |
-| Queue imbalance baseline | Estimate and evaluate next-move probabilities from best-quote imbalance | Planned |
-| Queue depletion model | Construct a finite-state generator and solve for first-depletion probabilities | Planned |
-| Model validation | Compare probabilities, calibration, and sensitivity across assets and periods | Planned |
-
-The planned work and evaluation criteria are listed in [`ROADMAP.md`](ROADMAP.md). The model modules currently define the intended interfaces; their estimators are not yet implemented.
-
-## Data
-
-The repository includes a deterministic **synthetic** LOBSTER-shaped dataset in `data/demo/` for pipeline checks. It is not exchange data. The research dataset is the [official LOBSTER sample](https://data.lobsterdata.com/info/DataSamples.php), which supplies aligned message and orderbook records. Raw provider files are downloaded into the Git-ignored `data/raw/` directory. See [`data/README.md`](data/README.md) for provenance and format details.
-
-```bash
-python scripts/download_sample.py AAPL
-```
-
-The free sample covers one trading day. Results from it are exploratory and do not establish stability across dates or market regimes.
-
-## Reproduce the current pipeline
+## Run
 
 ```bash
 python -m venv .venv
-# Windows PowerShell: .venv\Scripts\Activate.ps1
-# macOS/Linux: source .venv/bin/activate
-python -m pip install -e ".[research,dev]"
-python scripts/inspect_data.py --source demo
-python scripts/download_sample.py AAPL
-python scripts/inspect_data.py --source lobster --ticker AAPL
+# PowerShell: .venv\Scripts\Activate.ps1
+# Linux/macOS: source .venv/bin/activate
+python -m pip install -e ".[dev]"
+python scripts/match_orders.py
+python scripts/replay_book.py --source demo --strict
 python -m pytest
 ```
 
-The inspection script saves a chart and a table of labeled price spells in `reports/`. Generated reports and raw provider files are excluded from Git.
+For the official ten-level AAPL sample:
 
-## Repository structure
-
-```text
-data/demo/                       Synthetic pipeline fixture
-data/raw/                        Official sample ZIPs (downloaded, ignored)
-scripts/download_sample.py       Sample download entry point
-scripts/inspect_data.py          Exploratory analysis entry point
-src/queue_breaks_first/data.py   Data loading and event sampling
-src/queue_breaks_first/models.py Queue imbalance model interface
-src/queue_breaks_first/ctmc.py   Queue depletion model interface
-tests/                           Data pipeline tests
-ROADMAP.md                       Research and implementation plan
+```bash
+python scripts/download_sample.py AAPL
+python scripts/replay_book.py --source lobster --ticker AAPL
 ```
 
-## Methodology and limits
+Raw data and generated reports are ignored by Git. The sample covers 21 June 2012; it is a replay check, not evidence of trading performance.
 
-The current sampler uses one book state at the start of each constant-mid-price spell and labels it by the next change. This avoids counting many correlated updates with the same future outcome as independent examples. The default sample is restricted to a one-tick spread, where queue depletion has a clearer interpretation. Wider spreads also allow inside-spread orders to move the mid-price. LOBSTER prices are stored as integer dollar prices multiplied by 10,000; the loader preserves that representation.
+## Engine
 
-Predicting the direction of a price move is distinct from demonstrating an executable trading edge. Any trading interpretation would require explicit treatment of queue priority, spread, fees, latency, and adverse selection.
+The engine uses integer prices and quantities, price-time priority and the resting order's execution price. It supports limit and market orders, partial fills, cancellation, replacement, GTC, IOC, FOK and post-only orders.
 
-## References
+```python
+from queue_breaks_first.engine import MatchingEngine
 
-1. Cont & de Larrard, [*Price dynamics in a Markovian limit order market*](https://arxiv.org/abs/1104.4596).
-2. Gould & Bonart, [*Queue Imbalance as a One-Tick-Ahead Price Predictor in a Limit Order Book*](https://arxiv.org/abs/1512.03492).
-3. LOBSTER, [sample files](https://data.lobsterdata.com/info/DataSamples.php) and [output format](https://data.lobsterdata.com/info/DataStructure.php).
+book = MatchingEngine()
+book.submit(1, "sell", 100, 10100)
+book.submit(2, "sell", 50, 10100)
+result = book.submit(3, "buy", 120, 10100)
+print(result.fills)
+print(book.snapshot())
+```
+
+At the same price, reducing an order keeps priority. Increasing its quantity or changing its price loses priority. Market orders never rest; FOK checks available liquidity before changing the book.
+
+`scripts/match_orders.py --input orders.csv` accepts submit, cancel and replace commands. Run `--help` for options. [Engine and replay notes](docs/engine.md) describe the API and input format.
+
+## Replay
+
+LOBSTER message row k produces book row k. Replay starts from the first post-event snapshot, then applies the remaining messages in file order, including equal timestamps. Loading with `levels=None` retains all supplied depth; the original level-one loader remains the default.
+
+The first snapshot has aggregate quantities, not a complete FIFO history. Levels entering the observed depth can also contain unseen orders. Normal replay reconciles this liquidity and reports the adjustments. `--strict` fails when an event or snapshot needs an unsupported reconstruction. It does not certify the initial anonymous queue's order priority.
+
+Historical executions reference the resting order ID. They are applied as feed events, separately from matching a new incoming order. Hidden executions leave displayed depth unchanged; auctions and halts are handled separately.
+
+The committed demo is synthetic and deterministic. It exercises order lifecycles and strict replay. [Data provenance](data/README.md) covers the official sample.
+
+## Next
+
+Finish the imbalance baseline and queue CTMC, then add state-dependent event sizes, queue-aware fill models and strategy evaluation. A matching engine alone does not estimate strategy capacity. The plan is in [ROADMAP.md](ROADMAP.md).
+
+References: [LOBSTER format](https://data.lobsterdata.com/info/DataStructure.php), [Cont & de Larrard](https://arxiv.org/abs/1104.4596), [Gould & Bonart](https://arxiv.org/abs/1512.03492).
