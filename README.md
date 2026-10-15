@@ -2,7 +2,22 @@
 
 A FIFO matching engine and LOBSTER replay tool for limit order book research.
 
-Limit and market orders, partial fills, cancellations, replacements, GTC, IOC, FOK and post-only. Prices and quantities are integers.
+Prices and quantities are integers. Partial fills, cancellations and replacements are supported.
+
+## Order types
+
+**Limit orders** buy at a specified price or lower, or sell at a specified price or higher.
+
+**Market orders** execute against the best available prices. Any quantity that cannot be filled immediately is cancelled.
+
+Limit orders support four execution policies:
+
+- **GTC — Good Till Cancelled:** execute available quantity and leave the remainder in the book until filled or cancelled.
+- **IOC — Immediate Or Cancel:** execute available quantity immediately and cancel the remainder.
+- **FOK — Fill Or Kill:** execute the full quantity immediately or cancel the entire order.
+- **Post-only:** join the book without taking liquidity. The order is rejected if it would execute immediately.
+
+Market orders always use IOC.
 
 ## Run
 
