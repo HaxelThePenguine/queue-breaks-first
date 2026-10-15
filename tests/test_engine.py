@@ -122,6 +122,19 @@ def test_invalid_submission_is_atomic(field, value):
     assert book.order(1).quantity == 2
 
 
+@pytest.mark.parametrize("order_id", [-7, 0])
+def test_signed_and_zero_ids_support_the_order_lifecycle(order_id):
+    book = MatchingEngine()
+    book.submit(order_id, "sell", 4, 100)
+    assert book.order(order_id).quantity == 4
+    book.replace(order_id, 3)
+    assert book.cancel(order_id, 1) == 1
+    assert book.order(order_id).quantity == 2
+    assert book.execute_resting(order_id, 2) == 2
+    assert book.order(order_id) is None
+    assert book.snapshot() == {"bids": (), "asks": ()}
+
+
 def test_read_views_are_immutable_and_depth_is_validated():
     book = MatchingEngine()
     book.submit(1, "buy", 1, 100)

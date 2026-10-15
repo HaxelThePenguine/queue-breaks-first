@@ -4,12 +4,11 @@ from collections import OrderedDict
 from dataclasses import dataclass
 
 
-def _integer(value, name, *, positive=False, signed=False):
+def require_integer(value, name, minimum=None):
     if isinstance(value, bool) or not isinstance(value, int):
         raise TypeError(f"{name} must be an integer")
-    if not signed and value < (1 if positive else 0):
-        raise ValueError(f"{name} must be {'positive' if positive else 'nonnegative'}")
-    return value
+    if minimum is not None and value < minimum:
+        raise ValueError(f"{name} must be at least {minimum}")
 
 
 @dataclass(frozen=True)
@@ -54,12 +53,12 @@ class MatchingEngine:
         self._seen: set[int] = set()
 
     def _validate(self, order_id, side, quantity, price):
-        _integer(order_id, "order_id", signed=True)
+        require_integer(order_id, "order_id")
         if side not in ("buy", "sell"):
             raise ValueError("side must be buy or sell")
-        _integer(quantity, "quantity", positive=True)
+        require_integer(quantity, "quantity", minimum=1)
         if price is not None:
-            _integer(price, "price", positive=True)
+            require_integer(price, "price", minimum=1)
 
     def _prices(self, side):
         return sorted(self._levels[side], reverse=side == "buy")
@@ -158,13 +157,13 @@ class MatchingEngine:
     seed = add_resting
 
     def order(self, order_id: int) -> Order | None:
-        _integer(order_id, "order_id", signed=True)
+        require_integer(order_id, "order_id")
         return self._orders.get(order_id)
 
     def cancel(self, order_id: int, quantity: int | None = None) -> int:
-        _integer(order_id, "order_id", signed=True)
+        require_integer(order_id, "order_id")
         if quantity is not None:
-            _integer(quantity, "quantity", positive=True)
+            require_integer(quantity, "quantity", minimum=1)
         if order_id not in self._orders:
             raise KeyError(order_id)
         order = self._orders[order_id]
@@ -176,14 +175,14 @@ class MatchingEngine:
 
     def execute_resting(self, order_id: int, quantity: int) -> int:
         """Apply a reported execution to its exact historical maker order."""
-        _integer(quantity, "quantity", positive=True)
+        require_integer(quantity, "quantity", minimum=1)
         return self.cancel(order_id, quantity)
 
     def replace(self, order_id: int, quantity: int, price: int | None = None) -> ExecutionResult:
-        _integer(order_id, "order_id", signed=True)
-        _integer(quantity, "quantity", positive=True)
+        require_integer(order_id, "order_id")
+        require_integer(quantity, "quantity", minimum=1)
         if price is not None:
-            _integer(price, "price", positive=True)
+            require_integer(price, "price", minimum=1)
         if order_id not in self._orders:
             raise KeyError(order_id)
         old = self._orders[order_id]
@@ -196,7 +195,7 @@ class MatchingEngine:
 
     def snapshot(self, depth: int | None = None) -> dict:
         if depth is not None:
-            _integer(depth, "depth")
+            require_integer(depth, "depth", minimum=0)
         return {
             name: tuple(
                 (price, self._totals[side][price])
