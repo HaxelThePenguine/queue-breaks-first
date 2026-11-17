@@ -37,4 +37,13 @@ python scripts/replay_book.py --source lobster --ticker AAPL
 
 Reports are saved in `reports/`. The demo is synthetic; historical replay reports missing order identities and depth adjustments explicitly.
 
+## Progress
+
+Fixed microbenchmark: 100k one-unit orders at one price, followed by 100 one-unit market orders. Median of 5 runs, setup excluded. Both versions measured on the same machine with Python 3.12 on 2026-11-17.
+
+| Version | Time/order | vs. baseline |
+| --- | --- | --- |
+| [Baseline · 623d8d7](https://github.com/HaxelThePenguine/queue-breaks-first/commit/623d8d7) | 1,354 µs | 1× |
+| [Queue head · 91d2b85](https://github.com/HaxelThePenguine/queue-breaks-first/commit/91d2b85) | 2.7 µs | ~500× |
+
 [Engine and replay](docs/engine.md) · [Data](data/README.md)
