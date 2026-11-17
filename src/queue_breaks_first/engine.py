@@ -110,14 +110,14 @@ class MatchingEngine:
         remaining = quantity
         fills = []
         for maker_side, maker_price in eligible:
-            for maker_id in list(self._levels[maker_side][maker_price]):
+            level = self._levels[maker_side][maker_price]
+            while remaining and level:
+                maker_id = next(iter(level))
                 maker = self._orders[maker_id]
                 taken = min(remaining, maker.quantity)
                 fills.append(Trade(maker_id, order_id, maker_price, taken, maker_side))
                 self._reduce(maker, taken)
                 remaining -= taken
-                if not remaining:
-                    break
             if not remaining:
                 break
         resting = remaining if price is not None and tif in ("GTC", "POST_ONLY") else 0

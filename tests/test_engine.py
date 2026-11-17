@@ -84,6 +84,41 @@ def test_reprice_matches_and_then_rests():
     assert book.snapshot() == {"bids": ((102, 3),), "asks": ()}
 
 
+@pytest.mark.parametrize("side,best,worse,last", [
+    ("sell", 100, 102, 103), ("buy", 100, 98, 97),
+])
+def test_sweep_after_cancellations_and_replacement(side, best, worse, last):
+    book = MatchingEngine()
+    for order_id, quantity, price in [
+        (1, 5, best), (2, 4, best), (3, 6, best), (4, 7, worse), (5, 9, last),
+    ]:
+        book.submit(order_id, side, quantity, price)
+    book.cancel(2)
+    book.cancel(1, 2)
+    book.replace(1, 8)
+    taker_side = "buy" if side == "sell" else "sell"
+
+    result = book.submit(6, taker_side, 17, last, time_in_force="IOC")
+    assert [(t.maker_order_id, t.quantity, t.price) for t in result.fills] == [
+        (3, 6, best), (1, 8, best), (4, 3, worse),
+    ]
+    assert result.filled_quantity == 17
+    assert book.order(4).quantity == 4
+    assert book.order(5).quantity == 9
+
+    result = book.submit(7, taker_side, 13, last, time_in_force="FOK")
+    assert [(t.maker_order_id, t.quantity, t.price) for t in result.fills] == [
+        (4, 4, worse), (5, 9, last),
+    ]
+    assert result.filled_quantity == 13
+    assert book.snapshot() == {"bids": (), "asks": ()}
+
+    book.submit(8, side, 2, best)
+    result = book.submit(9, taker_side, 2, best, time_in_force="FOK")
+    assert [(t.maker_order_id, t.quantity) for t in result.fills] == [(8, 2)]
+    assert book.snapshot() == {"bids": (), "asks": ()}
+
+
 def test_targeted_historical_execution_and_cancel_atomicity():
     book = MatchingEngine()
     book.seed(-1, "sell", 3, 100)
