@@ -47,7 +47,8 @@ class MatchingEngine:
     """
 
     def __init__(self):
-        self._levels = {"buy": {}, "sell": {}}
+        # Each price level queues IDs in arrival order. Sizes live in _orders.
+        self._levels: dict[str, dict[int, OrderedDict[int, None]]] = {"buy": {}, "sell": {}}
         self._totals = {"buy": {}, "sell": {}}
         self._orders: dict[int, Order] = {}
         self._seen: set[int] = set()
@@ -74,42 +75,51 @@ class MatchingEngine:
             yield opposite, maker_price
 
     def _rest(self, order_id, side, quantity, price):
-        order = Order(order_id, side, quantity, price)
-        self._orders[order_id] = order
-        self._levels[side].setdefault(price, OrderedDict())[order_id] = quantity
-        self._totals[side][price] = self._totals[side].get(price, 0) + quantity
+        self._orders[order_id] = Order(order_id, side, quantity, price)
+        level = self._levels[side].setdefault(price, OrderedDict())
+        level[order_id] = None
+        totals = self._totals[side]
+        totals[price] = totals.get(price, 0) + quantity
 
     def _reduce(self, order, quantity):
-        level = self._levels[order.side][order.price]
-        self._totals[order.side][order.price] -= quantity
+        totals = self._totals[order.side]
+        totals[order.price] -= quantity
         remaining = order.quantity - quantity
         if remaining:
-            level[order.order_id] = remaining
             self._orders[order.order_id] = Order(
                 order.order_id, order.side, remaining, order.price
             )
-        else:
-            del level[order.order_id]
-            del self._orders[order.order_id]
-            if not level:
-                del self._levels[order.side][order.price]
-                del self._totals[order.side][order.price]
+            return
 
-    def _submit(self, order_id, side, quantity, price, tif):
-        eligible = list(self._eligible(side, price))
-        if tif == "POST_ONLY" and eligible:
+        levels = self._levels[order.side]
+        level = levels[order.price]
+        del level[order.order_id]
+        del self._orders[order.order_id]
+        if not level:
+            del levels[order.price]
+            del totals[order.price]
+
+    def _submit(self, order_id, side, quantity, price, time_in_force):
+        eligible_levels = list(self._eligible(side, price))
+        if time_in_force == "POST_ONLY" and eligible_levels:
             raise ValueError("post-only order would cross")
         self._seen.add(order_id)
-        if tif == "FOK":
+        if time_in_force == "FOK":
             available = sum(
                 self._totals[maker_side][maker_price]
-                for maker_side, maker_price in eligible
+                for maker_side, maker_price in eligible_levels
             )
             if available < quantity:
-                return ExecutionResult((), 0, quantity, 0, quantity)
+                return ExecutionResult(
+                    fills=(),
+                    filled_quantity=0,
+                    remaining_quantity=quantity,
+                    resting_quantity=0,
+                    cancelled_quantity=quantity,
+                )
         remaining = quantity
         fills = []
-        for maker_side, maker_price in eligible:
+        for maker_side, maker_price in eligible_levels:
             level = self._levels[maker_side][maker_price]
             while remaining and level:
                 maker_id = next(iter(level))
@@ -120,28 +130,36 @@ class MatchingEngine:
                 remaining -= taken
             if not remaining:
                 break
-        resting = remaining if price is not None and tif in ("GTC", "POST_ONLY") else 0
+        can_rest = price is not None and time_in_force in ("GTC", "POST_ONLY")
+        resting = remaining if can_rest else 0
         if resting:
             self._rest(order_id, side, resting, price)
-        return ExecutionResult(
-            tuple(fills), quantity - remaining, remaining, resting, remaining - resting
-        )
+        filled = quantity - remaining
+        cancelled = remaining - resting
+        return ExecutionResult(tuple(fills), filled, remaining, resting, cancelled)
 
-    def submit(self, order_id: int, side: str, quantity: int, price: int | None = None,
-               *, time_in_force: str = "GTC") -> ExecutionResult:
+    def submit(
+        self,
+        order_id: int,
+        side: str,
+        quantity: int,
+        price: int | None = None,
+        *,
+        time_in_force: str = "GTC",
+    ) -> ExecutionResult:
         self._validate(order_id, side, quantity, price)
         if order_id in self._seen:
             raise ValueError("order_id has already been used")
         if not isinstance(time_in_force, str):
             raise TypeError("time_in_force must be a string")
-        tif = time_in_force.upper()
-        if tif not in ("GTC", "IOC", "FOK", "POST_ONLY"):
+        time_in_force = time_in_force.upper()
+        if time_in_force not in ("GTC", "IOC", "FOK", "POST_ONLY"):
             raise ValueError("unsupported time_in_force")
         if price is None:
-            if tif in ("FOK", "POST_ONLY"):
+            if time_in_force in ("FOK", "POST_ONLY"):
                 raise ValueError("market orders support IOC only")
-            tif = "IOC"
-        return self._submit(order_id, side, quantity, price, tif)
+            time_in_force = "IOC"
+        return self._submit(order_id, side, quantity, price, time_in_force)
 
     def add_resting(self, order_id: int, side: str, quantity: int, price: int) -> Order:
         """Insert without crossing checks, for reconstructing historical books."""
@@ -189,7 +207,13 @@ class MatchingEngine:
         new_price = old.price if price is None else price
         if new_price == old.price and quantity <= old.quantity:
             self._reduce(old, old.quantity - quantity)
-            return ExecutionResult((), 0, quantity, quantity, 0)
+            return ExecutionResult(
+                fills=(),
+                filled_quantity=0,
+                remaining_quantity=quantity,
+                resting_quantity=quantity,
+                cancelled_quantity=0,
+            )
         self._reduce(old, old.quantity)
         return self._submit(order_id, old.side, quantity, new_price, "GTC")
 
